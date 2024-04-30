@@ -1,30 +1,68 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"strings"
+	"time"
 
 	"github.com/gocolly/colly"
 )
 
-// main() contains code adapted from example found in Colly's docs:
-// http://go-colly.org/docs/examples/basic/
+type PostData struct {
+	Title      string `json:"title"`
+	Link       string `json:"link"`
+	ScrapeTime string `json:"scrape_time"`
+}
+
 func main() {
-	// Instantiate default collector
-	c := colly.NewCollector()
+	c := colly.NewCollector(
+		colly.AllowedDomains("www.reddit.com", "reddit.com"),
+	)
 
-	// On every a element which has href attribute call callback
-	c.OnHTML("a[href]", func(e *colly.HTMLElement) {
-                link := e.Attr("href")
+	var data []PostData
+	var count int
 
-		// Print link
-                fmt.Printf("Link found: %q -> %s\n", e.Text, link)
+	c.OnHTML(`a[id^="post-title-t3"]`, func(e *colly.HTMLElement) {
+		if count >= 10 {
+			return 
+		}
+		title := strings.TrimSpace(e.Text) 
+		link := e.Request.AbsoluteURL(e.Attr("href"))
+		scrapeTime := time.Now().Format(time.RFC3339) // Current time in RFC3339 format
+
+		if title != "" && link != "" {
+			data = append(data, PostData{
+				Title:      title,
+				Link:       link,
+				ScrapeTime: scrapeTime,
+			})
+			count++
+		}
 	})
 
-	// Before making a request print "Visiting ..."
 	c.OnRequest(func(r *colly.Request) {
 		fmt.Println("Visiting", r.URL.String())
 	})
 
-	// Start scraping on https://hackerspaces.org
-	c.Visit("https://hackerspaces.org/")
+	c.Visit("https://www.reddit.com/r/cybersecurity/top/?t=day")
+
+	fmt.Println("Scraped data:")
+	for _, d := range data {
+		fmt.Printf("Title: %s, Link: %s, Scrape Time: %s\n", d.Title, d.Link, d.ScrapeTime)
+	}
+
+	jsonData, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		fmt.Println("Error serializing data:", err)
+		return
+	}
+	fmt.Println("JSON data:", string(jsonData))
+
+	err = os.WriteFile("output.json", jsonData, 0644)
+	if err != nil {
+		fmt.Println("Error writing JSON to file:", err)
+	}
 }
+
